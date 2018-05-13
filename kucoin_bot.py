@@ -15,6 +15,9 @@ COINS_INFO_URL = 'https://kitchen-3.kucoin.com/v1/market/open/coins'
 # If the market is NEO-ETH it means: Buy/sell NEO for ETH
 OPEN_ORDERS_URL = 'https://kitchen-3.kucoin.com/v1/{}/open/orders?limit=1'
 
+# 0.1% per operation
+TRADING_FEE = 0.001
+
 
 class ArbitrageBot():
     def __init__(self):
@@ -57,6 +60,25 @@ class ArbitrageBot():
     def _get_url_sync(self, url):
         return requests.get(url).text
 
+    def _arbitrage_still_exists(self, data, ratio_reversed):
+        '''
+            data:
+            [{'SELL': [[68.089535, 8.371073, 569.98246803]],
+            'BUY': [[68.0, 0.186491, 12.681388]]}, {'SELL': [[0.00789916,
+            0.674902, 0.00533116]], 'BUY': [[0.00787229, 1.0, 0.00787229]]},
+            {'SELL': [[8684.996557, 0.06735591, 584.98584644]], 'BUY': 
+            [[8625.612438, 0.3, 2587.6837314]]}]
+        '''
+        # Data must be a list of 3 elements representing the 3 markets.
+
+        buy = data[0]['SELL'][0][0]
+        sell_other = data[1]['BUY'][0][0]
+        ratio = [data[2]['SELL'][0][0], data[2]['BUY'][0][0]]
+
+        cmp_val = sell_other * ratio[1] if not ratio_reversed \
+                                        else sell_other / ratio[0]
+        return buy < cmp_val
+
     def _get_arbitrage_oportunities(self):
         arbitrage_oportunities = []
         for coin_pair, v in self._symbols.items():
@@ -95,7 +117,7 @@ class ArbitrageBot():
                                                     else sell_other / ratio[0]
 
                     # Check for triangular arbitrage
-                    if buy < cmp_val or True:
+                    if buy < cmp_val:
                         # TODO: Buy/sell operations
                         # Buy coin_pair for coin, sell coin for other_coin_pair
                         # sell other_coin_pair for coin_pair
@@ -132,11 +154,54 @@ class ArbitrageBot():
                         # The values are a list of lists, with the format:
                         # [price_coin_pair, volume_coin, volume_coin_pair]
                         data = [d['data'] for d in data]
+
+                        # Check if arbitrage still exists
+                        if not self._arbitrage_still_exists(data,
+                                                            ratio_reversed):
+                            continue
+
+                        # We have to look at the contrary operation to fill
+                        # the order.
+                        market1_volume = data[0]['SELL'][0][1]
+                        market2_volume = data[1]['BUY'][0][1]
+                        if ratio_reversed:
+                            market3_volume = data[2]['SELL'][0][1]
+                        else:
+                            market3_volume = data[2]['BUY'][0][1]
+
+                        # TODO: Update cmp_val with new values (as in check arb)
+                        percentage = cmp_val / buy
+
                         print('Arbitrage: %s -> %s -> %s -> %s' % (coin_pair,
                                                                coin,
                                                                other_coin_pair,
                                                                coin_pair))
-                        print(data)
+                        print('Arbitrage oportunity! {:.4f}%'.format(percentage))
+                        print('Buy  {} @ {} {} (vol: {} {})'.format(coin,
+                                                                 buy,
+                                                                 coin_pair,
+                                                                 market1_volume,
+                                                                 coin
+                                                                 ))
+                        print('Sell {} @ {} {} (vol: {} {})'.format(coin,
+                                                               sell_other,
+                                                               other_coin_pair,
+                                                               market2_volume,
+                                                               coin))
+                        if ratio_reversed:
+                            print('Buy {} @ {} {} (vol: {} {})'.format(coin_pair,
+                                                                ratio[0],
+                                                                other_coin_pair,
+                                                                market3_volume,
+                                                                coin_pair))
+                        else:
+                            print('Sell {} @ {} {} (vol: {} {})'.format(other_coin_pair,
+                                                           ratio[1],
+                                                           coin_pair,
+                                                           market3_volume,
+                                                           other_coin_pair))
+
+                        print('----------------------------')
 
         return arbitrage_oportunities
 
