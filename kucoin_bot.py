@@ -50,10 +50,8 @@ class ArbitrageBot():
             return await response.json()
 
     def _get_urls_async(self, url_list):
-        tasks = []
+        tasks = [self._get_url_async(url) for url in url_list]
         pages = []
-        for url in url_list:
-            tasks.append(self._get_url_async(url))
         pages = self.loop.run_until_complete(asyncio.gather(*tasks))
         return pages
 
@@ -72,12 +70,14 @@ class ArbitrageBot():
         # Data must be a list of 3 elements representing the 3 markets.
 
         buy = data[0]['SELL'][0][0]
+        buy_other = data[1]['SELL'][0][0]
+        sell = data[0]['BUY'][0][0]
         sell_other = data[1]['BUY'][0][0]
         ratio = [data[2]['SELL'][0][0], data[2]['BUY'][0][0]]
 
         cmp_val = sell_other * ratio[1] if not ratio_reversed \
                                         else sell_other / ratio[0]
-        return buy < cmp_val
+        return buy, sell, buy_other, sell_other, cmp_val, (buy < cmp_val)
 
     def _get_arbitrage_oportunities(self):
         arbitrage_oportunities = []
@@ -155,9 +155,12 @@ class ArbitrageBot():
                         # [price_coin_pair, volume_coin, volume_coin_pair]
                         data = [d['data'] for d in data]
 
+                        buy, sell, buy_other, sell_other, cmp_val, ok = \
+                                            self._arbitrage_still_exists(
+                                                                data,
+                                                                ratio_reversed)
                         # Check if arbitrage still exists
-                        if not self._arbitrage_still_exists(data,
-                                                            ratio_reversed):
+                        if not ok:
                             continue
 
                         # We have to look at the contrary operation to fill
@@ -169,13 +172,17 @@ class ArbitrageBot():
                         else:
                             market3_volume = data[2]['BUY'][0][1]
 
-                        # TODO: Update cmp_val with new values (as in check arb)
                         percentage = cmp_val / buy
+
+                        # TODO: Check market 3
+                        max_vol_to_buy = min(market1_volume,
+                                             market2_volume)
 
                         print('Arbitrage: %s -> %s -> %s -> %s' % (coin_pair,
                                                                coin,
                                                                other_coin_pair,
                                                                coin_pair))
+                        print('Max vol %s %s' % (max_vol_to_buy, coin))
                         print('Arbitrage oportunity! {:.4f}%'.format(percentage))
                         print('Buy  {} @ {} {} (vol: {} {})'.format(coin,
                                                                  buy,
